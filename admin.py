@@ -1,4 +1,8 @@
 # admin.py
+from telegram import Update
+from telegram.ext import ContextTypes
+import sqlite3
+
 ADMIN_IDS = [781822611]  # ID администраторов
 
 async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
