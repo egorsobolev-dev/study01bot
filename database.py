@@ -20,14 +20,13 @@ def create_tables():
             )
         ''')
         
-        # Таблица заказов
+        # Таблица заказов (без file_paths для совместимости)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 work_type TEXT,
                 description TEXT,
-                file_paths TEXT,
                 status TEXT DEFAULT 'new',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
@@ -42,16 +41,16 @@ def create_tables():
         logger.error(f"❌ Ошибка при создании таблиц БД: {e}")
         raise
 
-def save_order(user_id, work_type, description, file_paths=""):
+def save_order(user_id, work_type, description):
     """Сохранение заказа в базу данных"""
     try:
         conn = sqlite3.connect('academic_bot.db')
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO orders (user_id, work_type, description, file_paths, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, work_type, description, file_paths, 'new', datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            INSERT INTO orders (user_id, work_type, description, status, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (user_id, work_type, description, 'new', datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         
         order_id = cursor.lastrowid
         conn.commit()
