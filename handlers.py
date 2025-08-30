@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import sqlite3
 import logging
-from database import save_order
+from database import save_order, save_order_file, get_order_files
 from admin import ADMIN_IDS
 
 logger = logging.getLogger(__name__)
@@ -176,6 +176,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['selected_work_type'] = work_type
         context.user_data['waiting_for_description'] = True
         context.user_data['user_id'] = query.from_user.id
+        context.user_data['files'] = []  # Список для хранения файлов
         
         logger.info(f"Пользователь {query.from_user.id} выбрал тип работы: {work_type}")
         
@@ -188,7 +189,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Сроки выполнения\n"
             "• Особые требования\n"
             "• Методические указания (если есть)\n\n"
-            "После описания можете прикрепить файлы с дополнительными материалами.\n\n"
+            "📎 Можете прикрепить файлы ДО или ПОСЛЕ описания.\n\n"
             "Для отмены используйте /start"
         )
     else:
@@ -217,6 +218,7 @@ async def handle_order_description(update: Update, context: ContextTypes.DEFAULT
     user = update.effective_user
     work_type = context.user_data.get('selected_work_type')
     description = update.message.text.strip()
+    files = context.user_data.get('files', [])
     
     # Проверяем длину описания (минимум 5 символов для простого теста)
     if len(description) < 5:
@@ -233,11 +235,17 @@ async def handle_order_description(update: Update, context: ContextTypes.DEFAULT
     logger.info(f"Результат сохранения заказа: {order_id}")
     
     if order_id:
+        # Сохраняем файлы если они были прикреплены
+        for file_info in files:
+            save_order_file(order_id, file_info['file_id'], file_info['file_name'], file_info['file_type'])
+        
         # Отправляем подтверждение пользователю
+        file_text = f"\n📎 Прикреплено файлов: {len(files)}" if files else ""
+        
         await update.message.reply_text(
             f"✅ Ваш заказ #{order_id} принят!\n\n"
             f"Тип работы: {work_type}\n"
-            f"Описание: {description[:100]}{'...' if len(description) > 100 else ''}\n\n"
+            f"Описание: {description[:100]}{'...' if len(description) > 100 else ''}{file_text}\n\n"
             "📞 С вами свяжется администратор для уточнения деталей и расчета стоимости."
         )
         
@@ -248,7 +256,8 @@ async def handle_order_description(update: Update, context: ContextTypes.DEFAULT
             'user_name': user.first_name,
             'username': f"@{user.username}" if user.username else "Без username",
             'work_type': work_type,
-            'description': description
+            'description': description,
+            'files': files
         })
         
         # Очищаем контекст пользователя
@@ -265,19 +274,48 @@ async def handle_order_files(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Если пользователь отправил файл в процессе оформления заказа
     if context.user_data.get('waiting_for_description'):
-        file_name = "Неизвестный файл"
-        if update.message.document:
-            file_name = update.message.document.file_name
-        elif update.message.photo:
-            file_name = "Изображение"
+        file_info = {}
         
-        await update.message.reply_text(
-            f"📎 Файл '{file_name}' получен!\n\n"
-            "Теперь отправьте текстовое описание работы."
-        )
+        if update.message.document:
+            file_info = {
+                'file_id': update.message.document.file_id,
+                'file_name': update.message.document.file_name or "Документ",
+                'file_type': 'document'
+            }
+        elif update.message.photo:
+            file_info = {
+                'file_id': update.message.photo[-1].file_id,  # Берем фото лучшего качества
+                'file_name': "Изображение",
+                'file_type': 'photo'
+            }
+        elif update.message.video:
+            file_info = {
+                'file_id': update.message.video.file_id,
+                'file_name': "Видео",
+                'file_type': 'video'
+            }
+        
+        if file_info:
+            # Добавляем файл в список
+            if 'files' not in context.user_data:
+                context.user_data['files'] = []
+            
+            context.user_data['files'].append(file_info)
+            
+            await update.message.reply_text(
+                f"📎 Файл '{file_info['file_name']}' получен и будет прикреплен к заказу!\n\n"
+                f"Всего файлов: {len(context.user_data['files'])}\n\n"
+                "Отправьте текстовое описание работы для завершения оформления заказа."
+            )
 
 async def send_admin_notification(context: ContextTypes, order_data):
     """Отправка уведомления администратору о новом заказе"""
+    
+    files_text = ""
+    if order_data.get('files'):
+        files_text = f"\n📎 Прикрепленные файлы:\n"
+        for file_info in order_data['files']:
+            files_text += f"• {file_info['file_name']} ({file_info['file_type']})\n"
     
     admin_message = f"""
 🆕 НОВЫЙ ЗАКАЗ #{order_data['id']}
@@ -287,7 +325,7 @@ async def send_admin_notification(context: ContextTypes, order_data):
 📚 Тип работы: {order_data['work_type']}
 
 📝 Описание:
-{order_data['description']}
+{order_data['description']}{files_text}
 
 💬 Для ответа клиенту используйте его ID: {order_data['user_id']}
     """
@@ -295,6 +333,20 @@ async def send_admin_notification(context: ContextTypes, order_data):
     for admin_id in ADMIN_IDS:
         try:
             await context.bot.send_message(admin_id, admin_message)
+            
+            # Отправляем файлы админу
+            if order_data.get('files'):
+                for file_info in order_data['files']:
+                    try:
+                        if file_info['file_type'] == 'document':
+                            await context.bot.send_document(admin_id, file_info['file_id'])
+                        elif file_info['file_type'] == 'photo':
+                            await context.bot.send_photo(admin_id, file_info['file_id'])
+                        elif file_info['file_type'] == 'video':
+                            await context.bot.send_video(admin_id, file_info['file_id'])
+                    except Exception as file_error:
+                        logger.error(f"Ошибка отправки файла админу: {file_error}")
+            
             logger.info(f"Уведомление о заказе #{order_data['id']} отправлено админу {admin_id}")
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
@@ -324,7 +376,12 @@ async def show_admin_orders(query):
         text = "📋 Последние заказы:\n\n"
         for order in orders:
             order_id, name, work_type, description, status, created_at = order
-            text += f"#{order_id} - {name}\n"
+            
+            # Получаем информацию о файлах
+            files = get_order_files(order_id)
+            files_text = f" (📎 {len(files)} файлов)" if files else ""
+            
+            text += f"#{order_id} - {name}{files_text}\n"
             text += f"Тип: {work_type}\n"
             text += f"Описание: {description[:50]}{'...' if len(description) > 50 else ''}\n"
             text += f"Статус: {status}\n"
