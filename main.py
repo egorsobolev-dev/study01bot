@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.error import Conflict, NetworkError
 from config import BOT_TOKEN
 from handlers import start, new_order, help_command, button_handler, handle_message_with_content
-from admin import admin_orders
+from admin import admin_orders, admin_reply
 from database import create_tables
 
 # Настройка логирования
@@ -37,15 +37,7 @@ def main():
         application.add_handler(CommandHandler("new_order", new_order))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("admin_orders", admin_orders))
-
-
-        # В main.py добавить импорт:
-        from admin import admin_orders, admin_reply
-
-        # И зарегистрировать команды:
-        application.add_handler(CommandHandler("admin_orders", admin_orders))
         application.add_handler(CommandHandler("reply", admin_reply))
-
         
         # Регистрация обработчика кнопок
         application.add_handler(CallbackQueryHandler(button_handler))

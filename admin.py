@@ -1,4 +1,4 @@
-# admin.py (расширенная версия)
+# admin.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import sqlite3
@@ -28,19 +28,14 @@ async def admin_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Новых заказов нет")
         return
     
-    text = "📋 Заказы (нажмите для деталей):\n\n"
-    keyboard = []
-    
+    text = "📋 Заказы:\n\n"
     for order in orders:
         order_id, name, work_type, status, created_at = order
         text += f"#{order_id} - {name} ({work_type})\n"
-        keyboard.append([InlineKeyboardButton(
-            f"📋 Заказ #{order_id}", 
-            callback_data=f'order_details_{order_id}'
-        )])
+        text += f"Статус: {status}\n"
+        text += f"Дата: {created_at}\n\n"
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(text, reply_markup=reply_markup)
+    await update.message.reply_text(text)
 
 async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ответ клиенту через команду"""
