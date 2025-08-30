@@ -5,7 +5,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.error import Conflict, NetworkError
 from config import BOT_TOKEN
-from handlers import start, new_order, help_command, button_handler
+from handlers import start, new_order, help_command, button_handler, handle_order_description, handle_order_files
+from admin import admin_orders
 from database import create_tables
 
 # Настройка логирования
@@ -35,9 +36,14 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("new_order", new_order))
         application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("admin_orders", admin_orders))
         
         # Регистрация обработчика кнопок
         application.add_handler(CallbackQueryHandler(button_handler))
+        
+        # Обработчики текстовых сообщений и файлов
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_order_description))
+        application.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_order_files))
         
         logger.info("✅ Обработчики зарегистрированы")
         logger.info("🚀 Бот запущен и готов к работе!")

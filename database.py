@@ -26,12 +26,8 @@ def create_tables():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
                 work_type TEXT,
-                subject TEXT,
-                topic TEXT,
-                pages INTEGER,
-                deadline TEXT,
                 description TEXT,
-                price REAL,
+                file_paths TEXT,
                 status TEXT DEFAULT 'new',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
@@ -45,3 +41,25 @@ def create_tables():
     except Exception as e:
         logger.error(f"❌ Ошибка при создании таблиц БД: {e}")
         raise
+
+def save_order(user_id, work_type, description, file_paths=""):
+    """Сохранение заказа в базу данных"""
+    try:
+        conn = sqlite3.connect('academic_bot.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO orders (user_id, work_type, description, file_paths)
+            VALUES (?, ?, ?, ?)
+        ''', (user_id, work_type, description, file_paths))
+        
+        order_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Заказ #{order_id} сохранен")
+        return order_id
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при сохранении заказа: {e}")
+        return None
