@@ -37,6 +37,15 @@ def main():
         application.add_handler(CommandHandler("new_order", new_order))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("admin_orders", admin_orders))
+
+
+        # В main.py добавить импорт:
+        from admin import admin_orders, admin_reply
+
+        # И зарегистрировать команды:
+        application.add_handler(CommandHandler("admin_orders", admin_orders))
+        application.add_handler(CommandHandler("reply", admin_reply))
+
         
         # Регистрация обработчика кнопок
         application.add_handler(CallbackQueryHandler(button_handler))
