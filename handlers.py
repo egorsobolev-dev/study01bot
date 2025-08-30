@@ -21,6 +21,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
     
+    # Очищаем контекст пользователя при старте
+    context.user_data.clear()
+    
     welcome_text = f"""
 Добро пожаловать, {user.first_name}! 👋
 
@@ -40,11 +43,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📋 Мои заказы", callback_data='my_orders')],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data='help')]
     ]
+    
+    # Добавляем кнопку администратора если пользователь админ
+    if user.id in ADMIN_IDS:
+        keyboard.append([InlineKeyboardButton("👨‍💼 Админ-панель", callback_data='admin_panel')])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 async def new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Очищаем предыдущий контекст
+    context.user_data.clear()
+    
     keyboard = [
         [InlineKeyboardButton("📚 Курсовая работа", callback_data='type_coursework')],
         [InlineKeyboardButton("🎓 Дипломная работа", callback_data='type_diploma')],
@@ -106,6 +117,51 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await help_command(callback_update, context)
     elif query.data == 'my_orders':
         await query.edit_message_text("📋 Функция 'Мои заказы' в разработке...")
+    elif query.data == 'admin_panel':
+        # Проверяем права администратора
+        if query.from_user.id in ADMIN_IDS:
+            keyboard = [
+                [InlineKeyboardButton("📋 Посмотреть заказы", callback_data='view_orders')],
+                [InlineKeyboardButton("📊 Статистика", callback_data='statistics')],
+                [InlineKeyboardButton("🔙 Назад", callback_data='back_to_main')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("👨‍💼 Админ-панель:", reply_markup=reply_markup)
+        else:
+            await query.edit_message_text("❌ У вас нет прав администратора")
+    elif query.data == 'view_orders':
+        if query.from_user.id in ADMIN_IDS:
+            await show_admin_orders(query)
+        else:
+            await query.edit_message_text("❌ У вас нет прав администратора")
+    elif query.data == 'back_to_main':
+        # Возвращаемся к главному меню
+        user = query.from_user
+        welcome_text = f"""
+Добро пожаловать, {user.first_name}! 👋
+
+Я бот для приема заказов на академические работы.
+
+Могу помочь с:
+📚 Курсовыми работами
+🎓 Дипломными проектами
+📝 Рефератами и эссе
+📊 Презентациями
+
+Используйте /new_order для создания заказа
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📝 Новый заказ", callback_data='new_order')],
+            [InlineKeyboardButton("📋 Мои заказы", callback_data='my_orders')],
+            [InlineKeyboardButton("ℹ️ Помощь", callback_data='help')]
+        ]
+        
+        if user.id in ADMIN_IDS:
+            keyboard.append([InlineKeyboardButton("👨‍💼 Админ-панель", callback_data='admin_panel')])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(welcome_text, reply_markup=reply_markup)
     elif query.data.startswith('type_'):
         work_type_map = {
             'type_coursework': 'Курсовая работа',
@@ -119,6 +175,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Сохраняем выбранный тип работы в контексте пользователя
         context.user_data['selected_work_type'] = work_type
         context.user_data['waiting_for_description'] = True
+        context.user_data['user_id'] = query.from_user.id
         
         await query.edit_message_text(
             f"Вы выбрали: {work_type}\n\n"
@@ -129,7 +186,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Сроки выполнения\n"
             "• Особые требования\n"
             "• Методические указания (если есть)\n\n"
-            "После описания можете прикрепить файлы с дополнительными материалами."
+            "После описания можете прикрепить файлы с дополнительными материалами.\n\n"
+            "Для отмены используйте /start"
         )
     else:
         await query.edit_message_text("Неизвестная команда")
@@ -139,7 +197,7 @@ async def handle_order_description(update: Update, context: ContextTypes.DEFAULT
     
     # Проверяем, ожидается ли описание от этого пользователя
     if not context.user_data.get('waiting_for_description'):
-        return
+        return  # Игнорируем сообщение если не ожидаем описание
     
     user = update.effective_user
     work_type = context.user_data.get('selected_work_type', 'Не указан')
@@ -180,8 +238,6 @@ async def handle_order_files(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Если пользователь отправил файл после создания заказа
     if context.user_data.get('waiting_for_description'):
-        user = update.effective_user
-        
         file_name = "Неизвестный файл"
         if update.message.document:
             file_name = update.message.document.file_name
@@ -206,7 +262,7 @@ async def send_admin_notification(context: ContextTypes, order_data):
 📝 Описание:
 {order_data['description']}
 
-⏰ Время: {context.bot_data.get('current_time', 'сейчас')}
+💬 Для ответа клиенту используйте его ID: {order_data['user_id']}
     """
     
     for admin_id in ADMIN_IDS:
@@ -215,3 +271,41 @@ async def send_admin_notification(context: ContextTypes, order_data):
             logger.info(f"Уведомление о заказе #{order_data['id']} отправлено админу {admin_id}")
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+
+async def show_admin_orders(query):
+    """Показать заказы администратору"""
+    try:
+        conn = sqlite3.connect('academic_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT o.id, u.first_name, o.work_type, o.description, o.status, o.created_at
+            FROM orders o 
+            JOIN users u ON o.user_id = u.user_id 
+            ORDER BY o.created_at DESC 
+            LIMIT 10
+        ''')
+        
+        orders = cursor.fetchall()
+        conn.close()
+        
+        if not orders:
+            await query.edit_message_text("📋 Новых заказов нет")
+            return
+        
+        text = "📋 Последние заказы:\n\n"
+        for order in orders:
+            order_id, name, work_type, description, status, created_at = order
+            text += f"#{order_id} - {name}\n"
+            text += f"Тип: {work_type}\n"
+            text += f"Описание: {description[:50]}...\n"
+            text += f"Статус: {status}\n"
+            text += f"Дата: {created_at}\n\n"
+        
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(text, reply_markup=reply_markup)
+        
+    except Exception as e:
+        logger.error(f"Ошибка при показе заказов: {e}")
+        await query.edit_message_text("❌ Ошибка при загрузке заказов")
