@@ -189,7 +189,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Сроки выполнения\n"
             "• Особые требования\n"
             "• Методические указания (если есть)\n\n"
-            "📎 Можете прикрепить файлы ДО или ПОСЛЕ описания.\n\n"
+            "📎 Можете прикрепить файлы ДО или ПОСЛЕ описания.\n"
+            "💡 Если прикрепляете файл, добавьте описание в подпись к файлу!\n\n"
             "Для отмены используйте /start"
         )
     else:
@@ -244,24 +245,21 @@ async def handle_message_with_content(update: Update, context: ContextTypes.DEFA
         context.user_data['files'] = files
         logger.info(f"Добавлен файл: {file_info['file_name']}")
     
-    # Обрабатываем текст
-    has_text = update.message.text and update.message.text.strip()
+    # ИСПРАВЛЕНИЕ: Проверяем текст И в text И в caption
+    message_text = None
+    if update.message.text:
+        message_text = update.message.text.strip()
+        logger.info(f"Получен текст из поля text: {message_text}")
+    elif update.message.caption:
+        message_text = update.message.caption.strip()
+        logger.info(f"Получен текст из поля caption: {message_text}")
     
-    if has_text:
-        description = update.message.text.strip()
-        
-        # Проверяем длину описания
-        if len(description) < 5:
-            await update.message.reply_text(
-                "📝 Описание слишком короткое. Пожалуйста, предоставьте более подробную информацию о работе."
-            )
-            return
-        
-        logger.info(f"Получено описание от пользователя {user_id}: {description}")
+    # Обрабатываем текст если он есть
+    if message_text and len(message_text) >= 5:
         logger.info(f"Начинаем сохранение заказа для пользователя {user_id}")
         
         # Сохраняем заказ в базу данных
-        order_id = save_order(user.id, work_type, description)
+        order_id = save_order(user.id, work_type, message_text)
         
         logger.info(f"Результат сохранения заказа: {order_id}")
         
@@ -276,7 +274,7 @@ async def handle_message_with_content(update: Update, context: ContextTypes.DEFA
             await update.message.reply_text(
                 f"✅ Ваш заказ #{order_id} принят!\n\n"
                 f"Тип работы: {work_type}\n"
-                f"Описание: {description[:100]}{'...' if len(description) > 100 else ''}{file_text}\n\n"
+                f"Описание: {message_text[:100]}{'...' if len(message_text) > 100 else ''}{file_text}\n\n"
                 "📞 С вами свяжется администратор для уточнения деталей и расчета стоимости."
             )
             
@@ -287,7 +285,7 @@ async def handle_message_with_content(update: Update, context: ContextTypes.DEFA
                 'user_name': user.first_name,
                 'username': f"@{user.username}" if user.username else "Без username",
                 'work_type': work_type,
-                'description': description,
+                'description': message_text,
                 'files': files
             })
             
@@ -300,12 +298,18 @@ async def handle_message_with_content(update: Update, context: ContextTypes.DEFA
             )
             logger.error(f"Не удалось сохранить заказ для пользователя {user_id}")
     
-    elif file_info:
+    elif message_text and len(message_text) < 5:
+        # Если текст слишком короткий
+        await update.message.reply_text(
+            "📝 Описание слишком короткое. Пожалуйста, предоставьте более подробную информацию о работе."
+        )
+    
+    elif file_info and not message_text:
         # Если только файл без текста
         await update.message.reply_text(
             f"📎 Файл '{file_info['file_name']}' получен и будет прикреплен к заказу!\n\n"
             f"Всего файлов: {len(files)}\n\n"
-            "Отправьте текстовое описание работы для завершения оформления заказа."
+            "💡 Совет: В следующем сообщении с файлом добавьте описание в подпись к файлу, или отправьте текстовое описание работы отдельным сообщением."
         )
 
 # Для обратной совместимости оставляем старые функции как алиасы
