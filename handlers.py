@@ -195,48 +195,65 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_order_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик описания заказа"""
     
-    # Проверяем, ожидается ли описание от этого пользователя
-    if not context.user_data.get('waiting_for_description'):
-        return  # Игнорируем сообщение если не ожидаем описание
+    # СТРОГАЯ проверка - все условия должны выполняться
+    if not (context.user_data.get('waiting_for_description') and 
+            context.user_data.get('selected_work_type') and 
+            context.user_data.get('user_id') == update.effective_user.id):
+        # НЕ обрабатываем сообщение если не все условия выполнены
+        return
     
     user = update.effective_user
-    work_type = context.user_data.get('selected_work_type', 'Не указан')
+    work_type = context.user_data.get('selected_work_type')
     description = update.message.text
     
-    # Сохраняем заказ в базу данных
-    order_id = save_order(user.id, work_type, description)
+    # Проверяем длину описания (минимум 10 символов)
+    if len(description.strip()) < 10:
+        await update.message.reply_text(
+            "📝 Описание слишком короткое. Пожалуйста, предоставьте более подробную информацию о работе (минимум 10 символов)."
+        )
+        return
     
-    if order_id:
-        # Отправляем подтверждение пользователю
+    try:
+        # Сохраняем заказ в базу данных
+        order_id = save_order(user.id, work_type, description)
+        
+        if order_id:
+            # Отправляем подтверждение пользователю
+            await update.message.reply_text(
+                f"✅ Ваш заказ #{order_id} принят!\n\n"
+                f"Тип работы: {work_type}\n"
+                f"Описание: {description[:100]}{'...' if len(description) > 100 else ''}\n\n"
+                "📞 С вами свяжется администратор для уточнения деталей и расчета стоимости."
+            )
+            
+            # Уведомление администратору
+            await send_admin_notification(context, {
+                'id': order_id,
+                'user_id': user.id,
+                'user_name': user.first_name,
+                'username': f"@{user.username}" if user.username else "Без username",
+                'work_type': work_type,
+                'description': description
+            })
+            
+        else:
+            await update.message.reply_text(
+                "❌ Произошла ошибка при сохранении заказа. Попробуйте еще раз или обратитесь к администратору."
+            )
+            
+    except Exception as e:
+        logger.error(f"Ошибка при обработке заказа: {e}")
         await update.message.reply_text(
-            f"✅ Ваш заказ #{order_id} принят!\n\n"
-            f"Тип работы: {work_type}\n"
-            f"Описание: {description[:100]}...\n\n"
-            "📞 С вами свяжется администратор для уточнения деталей и расчета стоимости."
+            "❌ Произошла техническая ошибка. Попробуйте позже или обратитесь к администратору."
         )
-        
-        # Уведомление администратору
-        await send_admin_notification(context, {
-            'id': order_id,
-            'user_id': user.id,
-            'user_name': user.first_name,
-            'username': f"@{user.username}" if user.username else "Без username",
-            'work_type': work_type,
-            'description': description
-        })
-        
-        # Очищаем контекст пользователя
+    finally:
+        # Очищаем контекст пользователя в любом случае
         context.user_data.clear()
-        
-    else:
-        await update.message.reply_text(
-            "❌ Произошла ошибка при сохранении заказа. Попробуйте еще раз или обратитесь к администратору."
-        )
 
 async def handle_order_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик файлов к заказу"""
     
-    # Если пользователь отправил файл после создания заказа
+    # Если пользователь отправил файл в процессе оформления заказа
     if context.user_data.get('waiting_for_description'):
         file_name = "Неизвестный файл"
         if update.message.document:
@@ -289,7 +306,9 @@ async def show_admin_orders(query):
         conn.close()
         
         if not orders:
-            await query.edit_message_text("📋 Новых заказов нет")
+            keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("📋 Новых заказов нет", reply_markup=reply_markup)
             return
         
         text = "📋 Последние заказы:\n\n"
@@ -297,7 +316,7 @@ async def show_admin_orders(query):
             order_id, name, work_type, description, status, created_at = order
             text += f"#{order_id} - {name}\n"
             text += f"Тип: {work_type}\n"
-            text += f"Описание: {description[:50]}...\n"
+            text += f"Описание: {description[:50]}{'...' if len(description) > 50 else ''}\n"
             text += f"Статус: {status}\n"
             text += f"Дата: {created_at}\n\n"
         
@@ -308,4 +327,6 @@ async def show_admin_orders(query):
         
     except Exception as e:
         logger.error(f"Ошибка при показе заказов: {e}")
-        await query.edit_message_text("❌ Ошибка при загрузке заказов")
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data='admin_panel')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("❌ Ошибка при загрузке заказов", reply_markup=reply_markup)
