@@ -49,17 +49,19 @@ def save_order(user_id, work_type, description, file_paths=""):
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO orders (user_id, work_type, description, file_paths)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, work_type, description, file_paths))
+            INSERT INTO orders (user_id, work_type, description, file_paths, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (user_id, work_type, description, file_paths, 'new', datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         
         order_id = cursor.lastrowid
         conn.commit()
         conn.close()
         
-        logger.info(f"✅ Заказ #{order_id} сохранен")
+        logger.info(f"✅ Заказ #{order_id} сохранен для пользователя {user_id}")
         return order_id
         
     except Exception as e:
         logger.error(f"❌ Ошибка при сохранении заказа: {e}")
+        if 'conn' in locals():
+            conn.close()
         return None

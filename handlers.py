@@ -177,6 +177,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['waiting_for_description'] = True
         context.user_data['user_id'] = query.from_user.id
         
+        logger.info(f"Пользователь {query.from_user.id} выбрал тип работы: {work_type}")
+        
         await query.edit_message_text(
             f"Вы выбрали: {work_type}\n\n"
             "📝 Отправьте максимально подробное описание работы и приложите все имеющиеся материалы/референсы.\n\n"
@@ -195,60 +197,68 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_order_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик описания заказа"""
     
-    # СТРОГАЯ проверка - все условия должны выполняться
-    if not (context.user_data.get('waiting_for_description') and 
-            context.user_data.get('selected_work_type') and 
-            context.user_data.get('user_id') == update.effective_user.id):
-        # НЕ обрабатываем сообщение если не все условия выполнены
+    user_id = update.effective_user.id
+    logger.info(f"Получено сообщение от пользователя {user_id}: {update.message.text}")
+    logger.info(f"Контекст пользователя: {context.user_data}")
+    
+    # Проверяем, ожидается ли описание от этого пользователя
+    if not context.user_data.get('waiting_for_description'):
+        logger.info(f"Пользователь {user_id} не ожидает описание заказа")
+        return
+    
+    if not context.user_data.get('selected_work_type'):
+        logger.info(f"У пользователя {user_id} не выбран тип работы")
+        return
+        
+    if context.user_data.get('user_id') != user_id:
+        logger.info(f"Несоответствие ID пользователя: {context.user_data.get('user_id')} != {user_id}")
         return
     
     user = update.effective_user
     work_type = context.user_data.get('selected_work_type')
-    description = update.message.text
+    description = update.message.text.strip()
     
-    # Проверяем длину описания (минимум 10 символов)
-    if len(description.strip()) < 10:
+    # Проверяем длину описания (минимум 5 символов для простого теста)
+    if len(description) < 5:
         await update.message.reply_text(
-            "📝 Описание слишком короткое. Пожалуйста, предоставьте более подробную информацию о работе (минимум 10 символов)."
+            "📝 Описание слишком короткое. Пожалуйста, предоставьте более подробную информацию о работе."
         )
         return
     
-    try:
-        # Сохраняем заказ в базу данных
-        order_id = save_order(user.id, work_type, description)
-        
-        if order_id:
-            # Отправляем подтверждение пользователю
-            await update.message.reply_text(
-                f"✅ Ваш заказ #{order_id} принят!\n\n"
-                f"Тип работы: {work_type}\n"
-                f"Описание: {description[:100]}{'...' if len(description) > 100 else ''}\n\n"
-                "📞 С вами свяжется администратор для уточнения деталей и расчета стоимости."
-            )
-            
-            # Уведомление администратору
-            await send_admin_notification(context, {
-                'id': order_id,
-                'user_id': user.id,
-                'user_name': user.first_name,
-                'username': f"@{user.username}" if user.username else "Без username",
-                'work_type': work_type,
-                'description': description
-            })
-            
-        else:
-            await update.message.reply_text(
-                "❌ Произошла ошибка при сохранении заказа. Попробуйте еще раз или обратитесь к администратору."
-            )
-            
-    except Exception as e:
-        logger.error(f"Ошибка при обработке заказа: {e}")
+    logger.info(f"Начинаем сохранение заказа для пользователя {user_id}")
+    
+    # Сохраняем заказ в базу данных
+    order_id = save_order(user.id, work_type, description)
+    
+    logger.info(f"Результат сохранения заказа: {order_id}")
+    
+    if order_id:
+        # Отправляем подтверждение пользователю
         await update.message.reply_text(
-            "❌ Произошла техническая ошибка. Попробуйте позже или обратитесь к администратору."
+            f"✅ Ваш заказ #{order_id} принят!\n\n"
+            f"Тип работы: {work_type}\n"
+            f"Описание: {description[:100]}{'...' if len(description) > 100 else ''}\n\n"
+            "📞 С вами свяжется администратор для уточнения деталей и расчета стоимости."
         )
-    finally:
-        # Очищаем контекст пользователя в любом случае
+        
+        # Уведомление администратору
+        await send_admin_notification(context, {
+            'id': order_id,
+            'user_id': user.id,
+            'user_name': user.first_name,
+            'username': f"@{user.username}" if user.username else "Без username",
+            'work_type': work_type,
+            'description': description
+        })
+        
+        # Очищаем контекст пользователя
         context.user_data.clear()
+        
+    else:
+        await update.message.reply_text(
+            "❌ Произошла ошибка при сохранении заказа. Попробуйте еще раз или обратитесь к администратору."
+        )
+        logger.error(f"Не удалось сохранить заказ для пользователя {user_id}")
 
 async def handle_order_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик файлов к заказу"""
