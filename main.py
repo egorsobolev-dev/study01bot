@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from telegram.error import Conflict, NetworkError
 from config import BOT_TOKEN
-from handlers import start, new_order, help_command, button_handler, handle_order_description, handle_order_files
+from handlers import start, new_order, help_command, button_handler, handle_message_with_content
 from admin import admin_orders
 from database import create_tables
 
@@ -41,8 +41,7 @@ def main():
         # Регистрация обработчика кнопок
         application.add_handler(CallbackQueryHandler(button_handler))
         
-        # Обработчики текстовых сообщений и файлов
-        # Новая версия:
+        # Обработчик всех сообщений с содержимым (текст, файлы, комбинации)
         application.add_handler(MessageHandler(
             (filters.TEXT | filters.Document.ALL | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, 
             handle_message_with_content
