@@ -42,8 +42,11 @@ def main():
         application.add_handler(CallbackQueryHandler(button_handler))
         
         # Обработчики текстовых сообщений и файлов
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_order_description))
-        application.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_order_files))
+        # Новая версия:
+        application.add_handler(MessageHandler(
+            (filters.TEXT | filters.Document.ALL | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, 
+            handle_message_with_content
+        ))
         
         logger.info("✅ Обработчики зарегистрированы")
         logger.info("🚀 Бот запущен и готов к работе!")
